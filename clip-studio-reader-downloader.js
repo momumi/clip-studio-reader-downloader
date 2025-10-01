@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Clip Studio Reader Downloader
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      1.10
 // @description  Download books from the browser version of Clip Studio Reader
 // @author       mrcoconuat
 // @supportURL   https://github.com/MrCocoNuat/clip-studio-reader-downloader/issues
@@ -22,6 +22,7 @@
 
 const downloadButtonId = "download-button";
 const errorMessageId = "error-message";
+const warningMessagesId = "warning-messages";
 
 const ELEMENT = {
     SCREEN_CONTROLLER: 0, // used to flip pages
@@ -30,7 +31,8 @@ const ELEMENT = {
     LOADER_SPINNER: 3, // used to detect if the reader is loading a page
     MENU: 4, // used to detect if the menu must be raised since it contains the page scroller
     PAGE_SPREAD: 5, // contains the actual pages, and is checked to see if the reader as a whole has loaded
-    PAGE_SLIDER: 7 // duh
+    PAGE_SLIDER: 7, // duh
+    COLOPHON: 8 // used to detect if the colophon page is being shown, usually because the reader has reached the end of the book
 }
 
 const DOWNLOAD_MODE = {
@@ -55,6 +57,26 @@ const siteSupport = {
         },
         // sometimes the necessary element does not have an id, which sucks
         classes: {}
+    },
+    "mbj-bs2.pf.mobilebook.jp": {
+        mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
+        ids: {
+            [ELEMENT.CURRENT_PAGE_COUNTER]: "menu_footer_nombre_progress",
+            [ELEMENT.MENU]: "menu_container",
+            [ELEMENT.PAGE_SPREAD]: { // more complicated structure is needed
+                id: "ct-main-viewer",
+                path: "children.1.children.0" // the page spread does not have an ID, so we have to go through the react structure >:(
+            },
+            // [ELEMENT.PAGE_SLIDER]: "menu_pagination_slider", // not working right, make the user drag it manually
+            [ELEMENT.COLOPHON]: "reading_panel_colophon",
+        },
+        classes: {
+            [ELEMENT.SCREEN_CONTROLLER]: "viewer-overlay-container", 
+        },
+        options:{
+            poorSupport: true, // this site has some issues
+            pageCounterPercentage: true // this site uses a percentage instead of page numbers, which complicates progress detection
+        }
     },
     "api.distribution.mediadotech.com": {
         mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
@@ -102,8 +124,43 @@ const siteSupport = {
 
 // try by ID if given, then by class
 const getCSRElement = (elementEnum) => {
-    return document.getElementById(siteSupport[window.location.hostname].ids?.[elementEnum])
-        ?? document.getElementsByClassName(siteSupport[window.location.hostname].classes?.[elementEnum])[0];
+    if (siteSupport[window.location.hostname]) {
+        // id search?
+        if (typeof siteSupport[window.location.hostname].ids?.[elementEnum] === "string") {
+            console.debug("Searching by id:", siteSupport[window.location.hostname].ids?.[elementEnum]);
+            return document.getElementById(siteSupport[window.location.hostname].ids?.[elementEnum]);
+        }  
+        // id + path search?
+        else if (typeof siteSupport[window.location.hostname].ids?.[elementEnum] === "object") {
+            console.debug("Searching by id + path:", siteSupport[window.location.hostname].ids?.[elementEnum]);
+            const idElement = document.getElementById(siteSupport[window.location.hostname].ids?.[elementEnum].id);
+            if (idElement) {
+                const pathParts = siteSupport[window.location.hostname].ids?.[elementEnum].path.split(".");
+                let currentElement = idElement;
+                for (const part of pathParts) {
+                    if (part === "children") {
+                        currentElement = currentElement.children;
+                    } else {
+                        currentElement = currentElement[part];
+                    }
+                    if (!currentElement) {
+                        break;
+                    }
+                }
+                return currentElement;
+            }
+        } 
+        // class search?
+        else if (typeof siteSupport[window.location.hostname].classes?.[elementEnum] === "string") {
+            console.debug("Searching by class:", siteSupport[window.location.hostname].classes?.[elementEnum]);
+            return document.getElementsByClassName(siteSupport[window.location.hostname].classes?.[elementEnum])[0];
+        // class search with multiple elements of the same class?
+        } else if (typeof siteSupport[window.location.hostname].classes?.[elementEnum] === "object") {
+            console.debug("Searching by class + index:", siteSupport[window.location.hostname].classes?.[elementEnum]);
+            const elements = document.getElementsByClassName(siteSupport[window.location.hostname].classes?.[elementEnum].class);
+            return elements[siteSupport[window.location.hostname].classes?.[elementEnum].index];
+        }
+    }
 }
 
 // returns a list of direct image links
@@ -126,6 +183,10 @@ function siteIsSupported() {
 
 function downloadMode() {
     return siteSupport[document.location.hostname].mode;
+}
+
+function options() {
+    return siteSupport[document.location.hostname].options ?? {};
 }
 
 
@@ -245,12 +306,19 @@ function dataUrlToData(base64Url) {
 function flipPage(direction) {
     const screen = getCSRElement(ELEMENT.SCREEN_CONTROLLER);
     // click on the left, middle, or right of the screen depending on arg
-    const x = (-direction + 1) * viewportX() / 2;
+    const x = (-0.99*direction + 1) * viewportX() / 2;
     screen.dispatchEvent(new PointerEvent("pointerdown", {buttons: 1, clientX: x, clientY: 100, bubbles: true}));
+    screen.dispatchEvent(new PointerEvent("mousedown", {buttons: 1, clientX: x, clientY: 100, bubbles: true}));
     screen.dispatchEvent(new PointerEvent("pointerup", {buttons: 0, clientX: x, clientY: 100, bubbles: true}));
+    screen.dispatchEvent(new PointerEvent("mouseup", {buttons: 0, clientX: x, clientY: 100, bubbles: true}));
+    screen.dispatchEvent(new PointerEvent("click", {buttons: 0, clientX: x, clientY: 100, bubbles: true}));
 }
 
 async function waitForPageLoad() {
+    if (isLoadingPage() === undefined) {
+        await sleep(1000); // with no loader element, we have no idea if the page is loaded, so just wait a second
+        return;
+    }
     while (isLoadingPage()) {
         await sleep(100);
     }
@@ -261,23 +329,28 @@ function currentPage() {
 }
 
 function totalPageCount() {
+    if (options().pageCounterPercentage) return Infinity; // we can't know the total page count if it's a percentage
     return +getCSRElement(ELEMENT.TOTAL_PAGE_COUNTER).textContent;
 }
 
 function isLoadingPage() {
-    return getCSRElement(ELEMENT.LOADER_SPINNER).classList.contains("onstage");
+    return getCSRElement(ELEMENT.LOADER_SPINNER)?.classList.contains("onstage");
 }
 
 function isMenuOpen() {
     return getCSRElement(ELEMENT.MENU).style.display !== "none" && getCSRElement(ELEMENT.MENU).classList.contains("onstage");
 }
 
+function isColophonOpen() {
+    return getCSRElement(ELEMENT.COLOPHON).style.display !== "none" && getCSRElement(ELEMENT.COLOPHON).classList.contains("onstage");
+}
+
 async function flipToFirstPage() {
     const slider = getCSRElement(ELEMENT.PAGE_SLIDER);
-    if (slider === undefined && currentPage() !== 1) {
+    if (slider === undefined && currentPage() > 1) {
         throw Error("This reader's automatic page slider is not supported, please move to page 1 manually and click the download button again");
     }
-    if (currentPage() === 1) {
+    if (currentPage() <= 1) {
         info(`already on first page`);
         return;
     }
@@ -297,7 +370,25 @@ async function flipToFirstPage() {
         clientY: viewportY() - 70,
         bubbles: true
     }));
+    slider.dispatchEvent(new PointerEvent("mousedown", {
+        buttons: 1,
+        clientX: viewportX() - 25,
+        clientY: viewportY() - 70,
+        bubbles: true
+    }));
     slider.dispatchEvent(new PointerEvent("pointerup", {
+        buttons: 0,
+        clientX: viewportX() - 25,
+        clientY: viewportY() - 70,
+        bubbles: true
+    }));
+        slider.dispatchEvent(new PointerEvent("mouseup", {
+        buttons: 0,
+        clientX: viewportX() - 25,
+        clientY: viewportY() - 70,
+        bubbles: true
+    }));
+        slider.dispatchEvent(new PointerEvent("click", {
         buttons: 0,
         clientX: viewportX() - 25,
         clientY: viewportY() - 70,
@@ -311,6 +402,8 @@ async function flipToFirstPage() {
 // Main
 //------------------------------
 
+const MAX_ZERO_PADS = 4; // 9999 pages should be enough for anyone
+
 async function generatePageByPageZip() {
     const jsZip = new JSZip();
 
@@ -319,8 +412,11 @@ async function generatePageByPageZip() {
         throw Error("The total number of pages reported by the reader is 0, the page slider seems to have been opened incorrectly");
     }
 
-    info(`there are ${totalPages} pages in total to save`);
-    const zeroPads = digitCount(totalPages);
+    info(`there are ${totalPages === Infinity? 'an unknown number of' : totalPages} pages in total to save`);
+    if (totalPages === Infinity) {
+        addWarningMessage("the reader is in percentage mode, so the script cannot reliably track progress nor the total page count. Please check the zip after download");
+    }
+    const zeroPads = totalPages === Infinity? MAX_ZERO_PADS : digitCount(totalPages);
 
     let pageNumber = 1;
     let lastReportedReaderPageNumber; // this helps distinguish a 1 page spread on 2 canvases, vs the reader always rendering 1 page only because the viewport is too narrow
@@ -329,11 +425,15 @@ async function generatePageByPageZip() {
 
     log("==== downloading pages: ====");
 
+    if (isLoadingPage() === undefined) {
+        addWarningMessage("the reader does not have a reliable loading spinner, so this script cannot detect when a page is fully loaded. It will wait 1 second per page instead, which may be too long or too short");
+    }
+
     while (true) {
         const element_spread = getCSRElement(ELEMENT.PAGE_SPREAD);
         // Right to left means reverse the array
         for (const canvas of [...element_spread.children].toReversed()) {
-            if (canvas.style.visibility === "hidden" || canvas.style.display === "none") {
+            if (canvas.style.visibility === "hidden" || canvas.style.display === "none" || canvas.style.position === "absolute") {
                 debug(`page before ${pageNumber} is a hidden or junk page, skipping it`);
                 //possibly the unseen half of a 1 page spread on 2 canvases. Need to check after this canvas spread is completed and the page is flipped, what to do
                 expectedPagesInSpread--;
@@ -345,6 +445,9 @@ async function generatePageByPageZip() {
             pageNumber++;
         }
 
+        if (totalPages === Infinity && isColophonOpen()) {
+            break;
+        }
         if (pageNumber > totalPages) {
             break;
         }
@@ -386,6 +489,31 @@ async function generateDirectZip() {
     return jsZip;
 }
 
+function addWarningMessage(message) {
+    if (document.getElementById(warningMessagesId) === null) {
+        const container = document.createElement("div");
+        document.body.appendChild(container).id = warningMessagesId;
+        container.style["position"] = "fixed";
+        container.style["z-index"] = 900;
+        container.style["bottom"] = "250px";
+        container.style["right"] = "32px";
+        container.style["display"] = "flex";
+        container.style["flex-direction"] = "column";
+        container.style["align-items"] = "flex-end";
+    }
+    const container = document.getElementById(warningMessagesId);
+
+    const div = document.createElement("div");
+    div.style["position"] = "relative";
+    div.style["background"] = "black";
+    div.style["border"] = "3px solid purple";
+    div.style["padding"] = "8px";
+    div.style["color"] = "yellow";
+    container.appendChild(div);
+    const text = document.createTextNode(message);
+    div.appendChild(text);
+}
+
 function injectErrorMessage(message) {
     if (document.getElementById(errorMessageId) !== null) {
         document.getElementById(errorMessageId).remove();
@@ -394,14 +522,12 @@ function injectErrorMessage(message) {
     const div = document.createElement("div");
     div.id = errorMessageId;
     div.style["position"] = "fixed";
-    div.style["border-radius"] = "5%";
-    div.style["z-index"] = 900;
+    div.style["z-index"] = 901;
     div.style["bottom"] = "150px";
     div.style["right"] = "32px";
     div.style["background"] = "black";
     div.style["border"] = "3px solid purple";
     div.style["padding"] = "8px";
-    div.style["cursor"] = "pointer";
     div.style["color"] = "red";
     document.body.appendChild(div);
     const text = document.createTextNode(message);
@@ -463,7 +589,7 @@ function injectDownloadButton() {
 }
 
 function checkReaderLoad(observer, timeoutId) {
-    if (currentPage() !== 0) {
+    if (currentPage() !== 0 || totalPageCount() === Infinity) { // if totalPageCount is infinity (likely percentage mode), then current page != 0 can't be used to check if the reader is loaded
         observer.disconnect();
         // stop the 30 second timeout
         clearTimeout(timeoutId);
@@ -501,6 +627,9 @@ function checkPageLoad(observer) {
 
 function init() {
     if (siteIsSupported()) {
+        if (options().poorSupport){
+            addWarningMessage("the current reader site is poorly supported, some features may not work reliably. Feel free to open an issue on GitHub if you encounter any problems outside of the known warnings");
+        }
         (new MutationObserver((changes, observer) => checkPageLoad(observer))).observe(document, {
             childList: true,
             subtree: true

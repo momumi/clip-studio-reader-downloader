@@ -21,12 +21,13 @@ Once that is done, simply...
 
 ## Site Support
 
-As mentioned, each site's integrated Clip Studio Reader is a little different. A user-driven support package submission system is under development, but until then explicit support for each site is necessary. The current supported sites are:
+Each site's integrated Clip Studio Reader is a little different, so explicit support for each site is necessary. The current supported sites are:
 
 | Reader site | Bookstore |
 |-|-|
 |https://api.distribution.mediadotech.com/|[Pixiv Comics](https://comic.pixiv.net/)|
-|https://mbj-bs.pf.mobilebook.jp/| [honto](https://honto.jp/)|
+|https://mbj-bs.pf.mobilebook.jp/| [honto](https://honto.jp/)  (manga)|
+|https://mbj-bs2.pf.mobilebook.jp/ \**poor support*| [honto](https://honto.jp/) (novels)|
 |https://comic-viewer.iowl.jp/|[ComicFesta](https://comic.iowl.jp/)|
 |https://comic.pixiv.net/viewer/| [Pixiv Comics](https://comic.pixiv.net/)|
 |https://bs.comicdc.jp/|[Nadeshiko Shoten](https://nadeshiko-shoten.jp/)|
