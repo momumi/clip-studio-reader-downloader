@@ -498,13 +498,15 @@ async function flipToFirstPage(isLeftToRight = false) {
             buttons: 0,
             clientX: posX,
             clientY: posY,
-            bubbles: true
+            bubbles: true,
+            isPrimary:true,
         },
         {
             buttons: 1,
             clientX: posX,
             clientY: posY,
-            bubbles: true
+            bubbles: true,
+            isPrimary:true,
         }
     ];
     slider.dispatchEvent(new PointerEvent("pointerdown", buttons[1]));
