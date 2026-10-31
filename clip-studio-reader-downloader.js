@@ -216,7 +216,11 @@ function setupCanvasHooks() {
 
                 const pageNumber = isLeftPage ? 1 : 0;
                 currentCanvasCapture.isSinglePage = isSinglePage;
-                currentCanvasCapture.pages[pageNumber] = canvasToBase64(image);
+                currentCanvasCapture.pages[pageNumber] = {
+                    image: canvasToBase64(image),
+                    width: image.width,
+                    height: image.height,
+                };
             }
             return nativeCanvasRenderingContext2D.drawImage.call(this, image, dx, dy, dWidth, dHeight);
         } else {
@@ -411,6 +415,10 @@ function canvasToBase64(canvas) {
     return dataUrlToData(canvas.toDataURL());
 }
 
+function getPageFilename (pageNumber, padLength) {
+    return `${pageNumber.toString().padStart(padLength, "0")}.png`;
+}
+
 // Reader Utility
 //------------------------------
 
@@ -590,19 +598,27 @@ async function generatePageByPageZip(isLeftToRight = false) {
         if (useCanvasHooks()) {
             // Use the captured image data from the canvas hook functions,
             // instead of reading it from the on screen canvas
+            let pages = null;
             if (currentCanvasCapture.isSinglePage) {
                 info(`saving single page ${pageNumber} from hooked canvas capture`);
-                jsZip.file(`${pageNumber.toString().padStart(zeroPads, "0")}.png`, currentCanvasCapture.pages[0], {base64: true});
-                pageNumber++;
+                expectedPagesInSpread--
+                pages = [0];
             } else {
                 info(`saving double page ${pageNumber} from hooked canvas capture`);
-                const firstPage = isLeftToRight ? 1 : 0;
-                const secondPage = Number(!firstPage);
-                for (const page in [firstPage, secondPage]) {
-                    jsZip.file(`${pageNumber.toString().padStart(zeroPads, "0")}.png`, currentCanvasCapture.pages[page], {base64: true});
-                    pageNumber++;
+                pages = isLeftToRight ? [1, 0] : [0, 1];
+            }
+
+            for (const pageSide of pages) {
+                const page = currentCanvasCapture.pages[pageSide];
+                if ((pageNumber == 1 || pageNumber >= totalPages)
+                    && (page.width == 1 && page.height == 1))
+                {
+                    info(`skipping 1x1 pixel first/last page`);
+                    expectedPagesInSpread--;
+                    continue;
                 }
-                // UNKNOWN: can this ever have hidden pages in a two page spread like non-hooked version?
+                jsZip.file(getPageFilename(pageNumber, zeroPads), page.image, {base64: true});
+                pageNumber++;
             }
         } else {
             var elementSpread = [...getCSRElement(ELEMENT.PAGE_SPREAD).children];
@@ -620,7 +636,7 @@ async function generatePageByPageZip(isLeftToRight = false) {
                 }
 
                 info(`saving page ${pageNumber}`);
-                jsZip.file(`${pageNumber.toString().padStart(zeroPads, "0")}.png`, canvasToBase64(canvas), {base64: true});
+                jsZip.file(getPageFilename(pageNumber, zeroPads), canvasToBase64(canvas), {base64: true});
                 pageNumber++;
             }
         }
@@ -681,7 +697,7 @@ async function generateDirectZip() {
     log("==== downloading pages: ====");
 
     for (const [i, href] of pageHrefs.entries()) {
-        jsZip.file(`${i.toString().padStart(zeroPads, "0")}.png`, await (await fetch(href)).blob());
+        jsZip.file(getPageFilename(i, zeroPads), await (await fetch(href)).blob());
     }
 
     return jsZip;
