@@ -11,6 +11,7 @@
 // @match        https://comic-viewer.iowl.jp/*
 // @match        https://comic.pixiv.net/*
 // @match        https://bs.comicdc.jp/*
+// @match        https://bs-comicdc.bookagency.jp/*
 // @match        https://bs.web-viewer.honto.jp/*
 // @match        https://bsreader.hakusensha-e.net/*
 // @require      https://unpkg.com/jszip@3.10.1/dist/jszip.js
@@ -62,8 +63,26 @@ let currentCanvasCapture = {
 // Data distribution for site-specific integrations:
 //------------------------------
 
+// common variant of CSR used by many sites
+const variant1 = {
+    mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
+    ids: {
+        [ELEMENT.SCREEN_CONTROLLER]: "screen_control_pad",
+        [ELEMENT.CURRENT_PAGE_COUNTER]: "menu_nombre_current",
+        [ELEMENT.TOTAL_PAGE_COUNTER]: "menu_nombre_total",
+        [ELEMENT.LOADER_SPINNER]: "screen_loading_spinner_layer",
+        [ELEMENT.MENU]: "menu_container",
+        [ELEMENT.PAGE_SPREAD]: "screen_layer",
+        [ELEMENT.PAGE_SLIDER]: "menu_pagination_slider",
+        [ELEMENT.PAGE_SLIDER_HANDLE]: "menu_pagination_slider_handle"
+    },
+    options: {
+        useCanvasHooks: true,
+    }
+};
+
 const siteSupport = {
-    "mbj-bs.pf.mobilebook.jp": {
+    "mbj-bs.pf.mobilebook.jp": { // honto manga (deprecated)
         mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
         ids: {
             [ELEMENT.SCREEN_CONTROLLER]: "screen_surface",
@@ -78,7 +97,7 @@ const siteSupport = {
         // sometimes the necessary element does not have an id, which sucks
         classes: {}
     },
-    "mbj-bs2.pf.mobilebook.jp": {
+    "mbj-bs2.pf.mobilebook.jp": { // honto novel (deprecated)
         mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
         ids: {
             [ELEMENT.CURRENT_PAGE_COUNTER]: "menu_footer_nombre_progress",
@@ -99,7 +118,7 @@ const siteSupport = {
             pageCounterPercentage: true // this site uses a percentage instead of page numbers, which complicates progress detection
         }
     },
-    "api.distribution.mediadotech.com": {
+    "api.distribution.mediadotech.com": { // Pixiv Comics
         mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
         ids: {
             [ELEMENT.SCREEN_CONTROLLER]: "screen_control_pad",
@@ -110,19 +129,7 @@ const siteSupport = {
             [ELEMENT.PAGE_SPREAD]: "screen_layer"
         },
     },
-    "comic-viewer.iowl.jp": {
-        mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
-        ids: {
-            [ELEMENT.SCREEN_CONTROLLER]: "screen_control_pad",
-            [ELEMENT.CURRENT_PAGE_COUNTER]: "menu_nombre_current",
-            [ELEMENT.TOTAL_PAGE_COUNTER]: "menu_nombre_total",
-            [ELEMENT.LOADER_SPINNER]: "screen_loading_spinner_layer",
-            [ELEMENT.MENU]: "menu_footer",
-            [ELEMENT.PAGE_SPREAD]: "screen_layer",
-            [ELEMENT.PAGE_SLIDER_HANDLE]: "menu_pagination_slider_handle",
-        },
-    },
-    "comic.pixiv.net": {
+    "comic.pixiv.net": { // Pixiv Comics
         // readers can have extra conditions tacked on
         condition: () => document.location.pathname.substring(0, 7) === "/viewer",
         mode: DOWNLOAD_MODE.DIRECT,
@@ -131,47 +138,11 @@ const siteSupport = {
             [ELEMENT.PAGE_SPREAD]: "h-screen",
         },
     },
-    "bs.comicdc.jp": {
-        mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
-        ids: {
-            [ELEMENT.SCREEN_CONTROLLER]: "screen_control_pad",
-            [ELEMENT.CURRENT_PAGE_COUNTER]: "menu_nombre_current",
-            [ELEMENT.TOTAL_PAGE_COUNTER]: "menu_nombre_total",
-            [ELEMENT.LOADER_SPINNER]: "screen_loading_spinner_layer",
-            [ELEMENT.MENU]: "menu_container",
-            [ELEMENT.PAGE_SPREAD]: "screen_layer",
-            [ELEMENT.PAGE_SLIDER_HANDLE]: "menu_pagination_slider_handle",
-        },
-    },
-    "bs.web-viewer.honto.jp": {
-        mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
-        ids: {
-            [ELEMENT.SCREEN_CONTROLLER]: "screen_control_pad",
-            [ELEMENT.CURRENT_PAGE_COUNTER]: "menu_nombre_current",
-            [ELEMENT.TOTAL_PAGE_COUNTER]: "menu_nombre_total",
-            [ELEMENT.LOADER_SPINNER]: "screen_loading_spinner_layer",
-            [ELEMENT.MENU]: "menu_container",
-            [ELEMENT.PAGE_SPREAD]: "screen_layer",
-            [ELEMENT.PAGE_SLIDER]: "menu_pagination_slider",
-            [ELEMENT.PAGE_SLIDER_HANDLE]: "menu_pagination_slider_handle"
-        },
-        options: {
-            useCanvasHooks: true,
-        }
-    },
-    "bsreader.hakusensha-e.net": {
-        mode: DOWNLOAD_MODE.PAGE_BY_PAGE,
-        ids: {
-            [ELEMENT.SCREEN_CONTROLLER]: "screen_control_pad",
-            [ELEMENT.CURRENT_PAGE_COUNTER]: "menu_nombre_current",
-            [ELEMENT.TOTAL_PAGE_COUNTER]: "menu_nombre_total",
-            [ELEMENT.LOADER_SPINNER]: "screen_loading_spinner_layer",
-            [ELEMENT.MENU]: "menu_container",
-            [ELEMENT.PAGE_SPREAD]: "screen_layer",
-            [ELEMENT.PAGE_SLIDER]: "menu_pagination_slider",
-            [ELEMENT.PAGE_SLIDER_HANDLE]: "menu_pagination_slider_handle",
-        },
-    }
+    "comic-viewer.iowl.jp": variant1, // ComicFesta
+    "bs.comicdc.jp": variant1, // Nadeshiko Shoten (deprecated?)
+    "bs-comicdc.bookagency.jp": variant1, // Nadeshiko Shoten
+    "bs.web-viewer.honto.jp": variant1, // honto manga
+    "bsreader.hakusensha-e.net": variant1, // Hakusensha e-net
 }
 
 
